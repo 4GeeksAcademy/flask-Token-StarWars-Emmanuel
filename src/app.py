@@ -10,11 +10,18 @@ from flask_cors import CORS
 from utils import APIException, generate_sitemap
 from admin import setup_admin
 from models import db, User , Characters , Planets , Ships , CharacterFavorites, PlanetsFavorites, ShipsFavorites
-
+from flask_bcrypt import Bcrypt
+from flask_sqlalchemy import SQLAlchemy  # Para rutas
+from flask_jwt_extended import  JWTManager, create_access_token, jwt_required, get_jwt_identity
 #from models import Person
 
 app = Flask(__name__)
 app.url_map.strict_slashes = False
+
+app.config["JWT_SECRET_KEY"] = "valor-variable"  # clave secreta para firmar los tokens, cuanto mas largo mejor.
+jwt = JWTManager(app)  # isntanciamos jwt de JWTManager utilizando app para tener las herramientas de encriptacion.
+bcrypt = Bcrypt(app)   # para encriptar password
+
 
 db_url = os.getenv("DATABASE_URL")
 if db_url is not None:
@@ -39,21 +46,91 @@ def handle_invalid_usage(error):
 def sitemap():
     return generate_sitemap(app)
 
-@app.route('/users', methods=['GET'])
-def getUsers():
-    users = User.query.all()
+@app.route('/token', methods=['POST'])
+def get_token():
+    try:
+        email = request.json.get('email')
+        password = request.json.get('password')
+
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required.'}), 400
+        
+        login_user = User.query.filter_by(email=request.json['email']).one()
+        password_db = login_user.password
+        true_o_false = bcrypt.check_password_hash(password_db, password)
+        
+        if true_o_false:
+            # Lógica para crear y enviar el token
+            user_id = login_user.id
+            access_token = create_access_token(identity=user_id)
+            return { 'access_token':access_token}, 200
+
+        else:
+            return {"Error":"Contraseña  incorrecta"}
     
-    user_list = []
-    for user in users:
-        user_data = {
+    except Exception as e:
+        return {"Error":"El email proporcionado no corresponde a ninguno registrado: " + str(e)}, 500
+
+@app.route('/users', methods=['GET'])
+@jwt_required()  # Decorador para requerir autenticación con JWT
+def getUsers():
+    current_user_id = get_jwt_identity()  # Obtiene la identidad del usuario del token
+    if current_user_id:
+        users = User.query.all()
+    
+        user_list = []
+        for user in users:
+         user_data = {
             "id": user.id,
             "username": user.username,
             "email": user.email,
             "password":user.password
-        }
+         }
         user_list.append(user_data)
 
     return jsonify(user_list), 200
+
+@app.route('/login', methods=['POST'])
+def login():
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+
+        # Validate that the username and password are correct
+        if username == 'user' and password == 'password':
+            # Generate the token object (you can use a library like JWT)
+            token = 'generated_token'
+
+            # Save the token in sessionStorage
+            session['token'] = token
+
+            # Redirect to the /private route
+            return redirect('/private')
+        else:
+            return jsonify({'error': 'Invalid credentials'}), 401
+
+    except Exception as e:
+        return jsonify({'error': 'Error in login: ' + str(e)}), 500
+
+# ... (logout route)
+
+@app.route('/logout', methods=['POST'])
+@jwt_required()  # Requires authentication with a valid JWT token
+def logout():
+    unset_jwt_cookies()  # Remove JWT token from the client
+
+    return redirect('/')  # Redirect to the home page (public)
+
+# ... (Protected route)
+
+@app.route('/private', methods=['GET'])
+@jwt_required()  # Requires authentication with a valid JWT token
+def private_route():
+    current_user = get_jwt_identity()  # Get the user identity from the token
+
+    return jsonify(message='Hello, ' + current_user), 200
+
 
 @app.route('/characters', methods=['GET'])
 def getCharacters():
@@ -183,19 +260,35 @@ def getShip(ship_id):
 
     return jsonify(ship_data), 200
 
-@app.route('/users', methods=['POST'])
-def postUsers():
-    user_data = request.json
-    user = User(username=user_data['username'], email=user_data['email'], password=user_data['password'])
-    db.session.add(user)
-    db.session.commit()
+@app.route('/signup', methods=['POST'])
+def signup():
+    try:
+        username = request.json.get('username')
+        email = request.json.get('email')
+        password = request.json.get('password')
 
-    response_body = {
-        "username": user.username,
-        "email": user.email,
-        "password":user.password
-    }
-    return jsonify(response_body), 200
+        if not email or not password or not username:
+            return jsonify({'error': 'Username, email, and password are required.'}), 400
+
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            return jsonify({'error': 'Email already exists.'}), 409
+
+        password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+        new_user = User(username=username, email=email, password=password_hash)
+        db.session.add(new_user)
+        db.session.commit()
+
+        response_body = {
+            "username": new_user.username,
+            "email": new_user.email,
+            "password": new_user.password
+        }
+        return jsonify(response_body), 200
+
+    except Exception as e:
+        return jsonify({'error': 'Error in user creation: ' + str(e)}), 500
+
 
 
 @app.route('/characters', methods=['POST'])
