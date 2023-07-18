@@ -1,27 +1,25 @@
 """
 This module takes care of starting the API Server, Loading the DB and Adding the endpoints
 """
-
 import os
-from flask import Flask, request, jsonify, url_for
+from flask import Flask, request, jsonify, redirect, session, url_for
 from flask_migrate import Migrate
-from flask_swagger import swagger
 from flask_cors import CORS
-from utils import APIException, generate_sitemap
+from utils import APIException, generate_sitemap, generate_token
 from admin import setup_admin
-from models import db, User , Characters , Planets , Ships , CharacterFavorites, PlanetsFavorites, ShipsFavorites
-from flask_bcrypt import Bcrypt
+from models import db, User, Address, Planet, Character, Vehicle, Character_Favorite_List, Planet_Favorite_List, Vehicle_Favorite_List
+
+from flask_bcrypt import Bcrypt  # para encriptar y comparar
 from flask_sqlalchemy import SQLAlchemy  # Para rutas
-from flask_jwt_extended import  JWTManager, create_access_token, jwt_required, get_jwt_identity
-#from models import Person
+from flask_jwt_extended import  JWTManager, create_access_token, jwt_required, get_jwt_identity, unset_jwt_cookies
+
+# app.config["JWT_SECRET_KEY"] = "valor-variable"  # clave secreta para firmar los tokens, cuanto mas largo mejor.
+
 
 app = Flask(__name__)
+bcrypt = Bcrypt(app)
 app.url_map.strict_slashes = False
-
-app.config["JWT_SECRET_KEY"] = "valor-variable"  # clave secreta para firmar los tokens, cuanto mas largo mejor.
 jwt = JWTManager(app)  # isntanciamos jwt de JWTManager utilizando app para tener las herramientas de encriptacion.
-bcrypt = Bcrypt(app)   # para encriptar password
-
 
 db_url = os.getenv("DATABASE_URL")
 if db_url is not None:
@@ -35,7 +33,6 @@ db.init_app(app)
 CORS(app)
 setup_admin(app)
 
-
 # Handle/serialize errors like a JSON object
 @app.errorhandler(APIException)
 def handle_invalid_usage(error):
@@ -45,6 +42,145 @@ def handle_invalid_usage(error):
 @app.route('/')
 def sitemap():
     return generate_sitemap(app)
+
+# ... (definiciones de las rutas para User)
+
+@app.route('/users', methods=['GET'])
+def get_all_users():
+    try:
+        users = User.query.all()
+        serialized_users = [user.serialize() for user in users]
+        return jsonify(users=serialized_users), 200
+
+    except Exception as e:
+        return jsonify({'error': 'Error retrieving users: ' + str(e)}), 500
+
+
+@app.route('/users/<int:user_id>', methods=['GET'])
+def get_user(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify(message='User not found'), 404
+    return jsonify(user.serialize())
+
+# ... (create user that works like a signup)
+
+@app.route('/signup', methods=['POST'])
+def create_user():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
+        
+
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required.'}), 400
+
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user is not None:
+            return jsonify({'error': 'Email already exists.'}), 409
+
+        password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+
+        # username = data.get('username')
+        # name = data.get('name')
+        # surname = data.get('surname')
+        # phone_number = data.get('phone_number')
+
+        # if not username or not name or not surname or not phone_number:
+        #     return jsonify(message='Missing required fields'), 400
+
+        # address_data = data.get('address')
+        # if not address_data:
+        #     return jsonify(message='Address is required'), 400
+
+        # street_name = address_data.get('street_name')
+        # street_number = address_data.get('street_number')
+        # postal_code = address_data.get('postal_code')
+
+        # if not street_name or not street_number or not postal_code:
+        #     return jsonify(message='Missing required fields for address'), 400
+
+        new_user = User(email=email, password=password_hash, is_active = False)
+        
+        # (username=username, password=password_hash, name=name, surname=surname,
+        #                 phone_number=phone_number, email=email)
+        # new_address = Address(street_name=street_name, street_number=street_number, postal_code=postal_code)
+        # new_user.address = new_address
+
+        db.session.add(new_user)
+        db.session.commit()
+
+        return jsonify(message='User created successfully', user=new_user.serialize()), 201
+
+    except Exception as e:
+        return jsonify({'error': 'Error in user creation: ' + str(e)}), 500
+
+# ... (login route)
+
+@app.route('/login', methods=['POST'])
+def login():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
+        is_active = data.get('is_active')
+
+        # # Query the User model using the provided email
+    
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required.'}), 400
+        
+        login_user = User.query.filter_by(email=request.json['email']).one()
+        password_db = login_user.password
+        true_o_false = bcrypt.check_password_hash(password_db, password)
+        
+        if true_o_false:
+            # Lógica para crear y enviar el token
+            user_id = login_user.id
+            access_token = create_access_token(identity=user_id)
+            form_status = login_user.is_active 
+            return jsonify({ 'access_token':access_token, 'form_status':form_status}), 200
+        else:
+            return {"Error":"Contraseña  incorrecta"}
+
+        # and user.password == password:
+        # and is_active:
+            # Generate the token object (e.g., using JWT library)
+            token = generate_token(user.id)
+
+        #     # Save the token in the session
+        #     session['token'] = token
+
+          
+        #     return redirect(url_for('/private'))
+        # else:
+            # return jsonify({'error': 'Invalid credentials'}), 401
+
+    except Exception as e:
+        return jsonify({'error': 'Error in login: ' + str(e)}), 500
+
+# ... (logout route)
+
+@app.route('/logout', methods=['POST'])
+@jwt_required()  # Requires authentication with a valid JWT token
+def logout():
+    unset_jwt_cookies()  # Remove JWT token from the client
+
+    return redirect(url_for('/signup'))  # Redirect to the home page (public)
+
+# ... (Private route)
+
+@app.route('/private')
+def private():
+    token = session.get('token')
+    if token:
+        # User is authenticated, perform private actions
+        return jsonify({'message': 'Welcome to the private area!'})
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+# ... (token route)
 
 @app.route('/token', methods=['POST'])
 def get_token():
@@ -66,537 +202,481 @@ def get_token():
             return { 'access_token':access_token}, 200
 
         else:
-            return {"Error":"Contraseña  incorrecta"}
+            return {"Error":"Incorrect Password"}
     
     except Exception as e:
-        return {"Error":"El email proporcionado no corresponde a ninguno registrado: " + str(e)}, 500
+        return {"Error":"Written email is not in the database:" + str(e)}, 500
 
-@app.route('/users', methods=['GET'])
-@jwt_required()  # Decorador para requerir autenticación con JWT
-def getUsers():
-    current_user_id = get_jwt_identity()  # Obtiene la identidad del usuario del token
-    if current_user_id:
-        users = User.query.all()
-    
-        user_list = []
-        for user in users:
-         user_data = {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "password":user.password
-         }
-        user_list.append(user_data)
-
-    return jsonify(user_list), 200
-
-@app.route('/login', methods=['POST'])
-def login():
-    try:
-        data = request.get_json()
-        username = data.get('username')
-        password = data.get('password')
-
-        # Validate that the username and password are correct
-        if username == 'user' and password == 'password':
-            # Generate the token object (you can use a library like JWT)
-            token = 'generated_token'
-
-            # Save the token in sessionStorage
-            session['token'] = token
-
-            # Redirect to the /private route
-            return redirect('/private')
-        else:
-            return jsonify({'error': 'Invalid credentials'}), 401
-
-    except Exception as e:
-        return jsonify({'error': 'Error in login: ' + str(e)}), 500
-
-# ... (logout route)
-
-@app.route('/logout', methods=['POST'])
-@jwt_required()  # Requires authentication with a valid JWT token
-def logout():
-    unset_jwt_cookies()  # Remove JWT token from the client
-
-    return redirect('/')  # Redirect to the home page (public)
-
-# ... (Protected route)
-
-@app.route('/private', methods=['GET'])
-@jwt_required()  # Requires authentication with a valid JWT token
-def private_route():
-    current_user = get_jwt_identity()  # Get the user identity from the token
-
-    return jsonify(message='Hello, ' + current_user), 200
-
-
-@app.route('/characters', methods=['GET'])
-def getCharacters():
-    characters = Characters.query.all()
-    
-    character_list = []
-    for character in characters:
-        character_data = {
-            "id": character.id,
-            "name": character.name,
-            "birth_date": character.birth_date,
-            "height": character.height,
-            "hair_color": character.hair_color,
-            "eye_color": character.eye_color,
-            "gender": character.gender
-        }
-        character_list.append(character_data)
-
-    return jsonify(character_list), 200
-
-@app.route('/planets', methods=['GET'])
-def getPlanets():
-    planets = Planets.query.all()
-    
-    planet_list = []
-    for planet in planets:
-        planet_data = {
-            "id": planet.id,
-            "name": planet.name,
-            "population": planet.population,
-            "diameter": planet.diameter,
-            "climate": planet.climate,
-            "gravity": planet.gravity,
-            "terrain": planet.terrain
-        }
-        planet_list.append(planet_data)
-
-    return jsonify(planet_list), 200
-
-@app.route('/ships', methods=['GET'])
-def getShips():
-    ships = Ships.query.all()
-    
-    ship_list = []
-    for ship in ships:
-        ship_data = {
-            "id": ship.id,
-            "name": ship.name,
-            "model": ship.model,
-            "max_speed": ship.max_speed,
-            "passengers": ship.passengers,
-            "starship_class": ship.starship_class
-        }
-        ship_list.append(ship_data)
-
-    return jsonify(ship_list), 200
-
-
-@app.route('/users/<int:user_id>', methods=['GET'])
-def getUser(user_id):
-    user = User.query.get(user_id)
-    if user is None:
-        return jsonify({"error": "User not found"}), 404
-
-    user_data = {
-        "username": user.username,
-        "email": user.email,
-        "password": user.password
-    }
-
-    return jsonify(user_data), 200
-
-    
-@app.route('/characters/<int:character_id>', methods=['GET'])
-def getCharacter(character_id):
-    character = Characters.query.get(character_id)
-
-    if character is None:
-        return jsonify({"error": "Character not found"}), 404
-
-    character_data = {
-        "id": character.id,
-        "name": character.name,
-        "birth_date": character.birth_date,
-        "height": character.height,
-        "hair_color": character.hair_color,
-        "eye_color": character.eye_color,
-        "gender": character.gender
-    }
-
-    return jsonify(character_data), 200
-
-@app.route('/planets/<int:planet_id>', methods=['GET'])
-def getPlanet(planet_id):
-    planet = Planets.query.get(planet_id)
-
-    if planet is None:
-        return jsonify({"error": "Planet not found"}), 404
-
-    planet_data = {
-        "id": planet.id,
-        "name": planet.name,
-        "population": planet.population,
-        "diameter": planet.diameter,
-        "climate": planet.climate,
-        "gravity": planet.gravity,
-        "terrain": planet.terrain
-    }
-
-    return jsonify(planet_data), 200
-
-@app.route('/ships/<int:ship_id>', methods=['GET'])
-def getShip(ship_id):
-    ship = Ships.query.get(ship_id)
-
-    if ship is None:
-        return jsonify({"error": "Ship not found"}), 404
-
-    ship_data = {
-        "id": ship.id,
-        "name": ship.name,
-        "model": ship.model,
-        "max_speed": ship.max_speed,
-        "passengers": ship.passengers,
-        "starship_class": ship.starship_class
-    }
-
-    return jsonify(ship_data), 200
-
-@app.route('/signup', methods=['POST'])
-def signup():
-    try:
-        username = request.json.get('username')
-        email = request.json.get('email')
-        password = request.json.get('password')
-
-        if not email or not password or not username:
-            return jsonify({'error': 'Username, email, and password are required.'}), 400
-
-        existing_user = User.query.filter_by(email=email).first()
-        if existing_user:
-            return jsonify({'error': 'Email already exists.'}), 409
-
-        password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-        new_user = User(username=username, email=email, password=password_hash)
-        db.session.add(new_user)
-        db.session.commit()
-
-        response_body = {
-            "username": new_user.username,
-            "email": new_user.email,
-            "password": new_user.password
-        }
-        return jsonify(response_body), 200
-
-    except Exception as e:
-        return jsonify({'error': 'Error in user creation: ' + str(e)}), 500
-
-
-
-@app.route('/characters', methods=['POST'])
-def postCharacter():
-    character_data = request.json
-    character = Characters(name=character_data['name'], birth_date=character_data['birth_date'], height=character_data['height'], hair_color=character_data['hair_color'], eye_color=character_data['eye_color'], gender=character_data['gender'])
-    db.session.add(character)
-    db.session.commit()
-
-    response_body = {
-        "id": character.id,
-        "name": character.name,
-        "birth_date": character.birth_date,
-        "height": character.height,
-        "hair_color": character.hair_color,
-        "eye_color": character.eye_color,
-        "gender": character.gender
-    }
-
-    return jsonify(response_body), 200
-
-@app.route('/planets', methods=['POST'])
-def postPlanet():
-    planet_data = request.json
-    planet = Planets(name=planet_data['name'], population=planet_data['population'], diameter=planet_data['diameter'], climate=planet_data['climate'], gravity=planet_data['gravity'], terrain=planet_data['terrain'])
-    db.session.add(planet)
-    db.session.commit()
-
-    response_body = {
-        "id": planet.id,
-        "name": planet.name,
-        "population": planet.population,
-        "diameter": planet.diameter,
-        "climate": planet.climate,
-        "gravity": planet.gravity,
-        "terrain": planet.terrain
-    }
-
-    return jsonify(response_body), 200
-
-@app.route('/ships', methods=['POST'])
-def postShip():
-    ship_data = request.json
-    ship = Ships(name=ship_data['name'], model=ship_data['model'], max_speed=ship_data['max_speed'], passengers=ship_data['passengers'], starship_class=ship_data['starship_class'])
-    db.session.add(ship)
-    db.session.commit()
-
-    response_body = {
-        "id": ship.id,
-        "name": ship.name,
-        "model": ship.model,
-        "max_speed": ship.max_speed,
-        "passengers": ship.passengers,
-        "starship_class": ship.starship_class
-    }
-
-    return jsonify(response_body), 200
+# ... (otros métodos para users)
 
 @app.route('/users/<int:user_id>', methods=['PUT'])
-def updateUser(user_id):
+def update_user(user_id):
     user = User.query.get(user_id)
+    if not user:
+        return jsonify(message='User not found'), 404
 
-    if user is None:
-        return jsonify({"error": "User not found"}), 404
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    name = data.get('name')
+    surname = data.get('surname')
+    phone_number = data.get('phone_number')
+    email = data.get('email')
 
-    updated_data = request.get_json()
+    if not username or not password or not name or not surname or not phone_number or not email:
+        return jsonify(message='Missing required fields'), 400
 
-    user.username = updated_data.get('username', user.username)
-    user.email = updated_data.get('email', user.email)
-    user.password = updated_data.get('password', user.password)
+    user.username = username
+    user.password = password
+    user.name = name
+    user.surname = surname
+    user.phone_number = phone_number
+    user.email = email
 
-    db.session.commit()
+    address_data = data.get('address')
+    if address_data:
+        address = Address.query.filter_by(user_id=user_id).first()
+        if not address:
+            return jsonify(message='Address not found for the user'), 404
 
-    return jsonify({"message": "User updated successfully"}), 200
+        street_name = address_data.get('street_name')
+        street_number = address_data.get('street_number')
+        postal_code = address_data.get('postal_code')
 
-@app.route('/characters/<int:character_id>', methods=['PUT'])
-def updateCharacter(character_id):
-    character = Characters.query.get(character_id)
+        if not street_name or not street_number or not postal_code:
+            return jsonify(message='Missing required fields for address'), 400
 
-    if character is None:
-        return jsonify({"error": "Character not found"}), 404
-
-    updated_data = request.get_json()
-
-    character.name = updated_data.get('name', character.name)
-    character.birth_date = updated_data.get('birth_date', character.birth_date)
-    character.height = updated_data.get('height', character.height)
-    character.hair_color = updated_data.get('hair_color', character.hair_color)
-    character.eye_color = updated_data.get('eye_color', character.eye_color)
-    character.gender = updated_data.get('gender', character.gender)
-
-    db.session.commit()
-
-    return jsonify({"message": "Character updated successfully"}), 200
-
-
-@app.route('/planets/<int:planet_id>', methods=['PUT'])
-def updatePlanet(planet_id):
-    planet = Planets.query.get(planet_id)
-
-    if planet is None:
-        return jsonify({"error": "Planet not found"}), 404
-
-    updated_data = request.get_json()
-
-    planet.name = updated_data.get('name', planet.name)
-    planet.population = updated_data.get('population', planet.population)
-    planet.diameter = updated_data.get('diameter', planet.diameter)
-    planet.climate = updated_data.get('climate', planet.climate)
-    planet.gravity = updated_data.get('gravity', planet.gravity)
-    planet.terrain = updated_data.get('terrain', planet.terrain)
+        address.street_name = street_name
+        address.street_number = street_number
+        address.postal_code = postal_code
 
     db.session.commit()
 
-    return jsonify({"message": "Planet updated successfully"}), 200
+    return jsonify(message='User and address updated successfully', user=user.serialize(), address=address.serialize())
 
-@app.route('/ships/<int:ship_id>', methods=['PUT'])
-def updateShip(ship_id):
-    ship = Ships.query.get(ship_id)
-
-    if ship is None:
-        return jsonify({"error": "Ship not found"}), 404
-
-    updated_data = request.get_json()
-
-    ship.name = updated_data.get('name', ship.name)
-    ship.model = updated_data.get('model', ship.model)
-    ship.max_speed = updated_data.get('max_speed', ship.max_speed)
-    ship.passengers = updated_data.get('passengers', ship.passengers)
-    ship.starship_class = updated_data.get('starship_class', ship.starship_class)
-
-    db.session.commit()
-
-    return jsonify({"message": "Ship updated successfully"}), 200
 
 @app.route('/users/<int:user_id>', methods=['DELETE'])
-def deleteUser(user_id):
+def delete_user(user_id):
     user = User.query.get(user_id)
+    if not user:
+        return jsonify(message='User not found'), 404
 
-    if user is None:
-        return jsonify({"error": "User not found"}), 404
+    # Delete associated address
+    address = Address.query.filter_by(user_id=user_id).first()
+    if address:
+        db.session.delete(address)
+
+    # Delete associated favorite lists
+    character_favorite_list = Character_Favorite_List.query.filter_by(user_id=user_id).first()
+    if character_favorite_list:
+        db.session.delete(character_favorite_list)
+
+    planet_favorite_list = Planet_Favorite_List.query.filter_by(user_id=user_id).first()
+    if planet_favorite_list:
+        db.session.delete(planet_favorite_list)
+
+    vehicle_favorite_list = Vehicle_Favorite_List.query.filter_by(user_id=user_id).first()
+    if vehicle_favorite_list:
+        db.session.delete(vehicle_favorite_list)
 
     db.session.delete(user)
     db.session.commit()
 
-    return jsonify({"message": "User deleted successfully"}), 200
+    return jsonify(message='User deleted successfully')
 
-@app.route('/characters/<int:character_id>', methods=['DELETE'])
-def deleteCharacter(character_id):
-    character = Characters.query.get(character_id)
+# ... (definiciones de la clase Adress)
 
-    if character is None:
-        return jsonify({"error": "Character not found"}), 404
+@app.route('/addresses', methods=['GET'])
+def get_addresses():
+    addresses = Address.query.all()
+    return jsonify(addresses=[address.serialize() for address in addresses])
 
-    db.session.delete(character)
+@app.route('/addresses/<int:address_id>', methods=['GET'])
+def get_address(address_id):
+    address = Address.query.get(address_id)
+    if address:
+        return jsonify(address.serialize())
+    else:
+        return jsonify(message='Address not found'), 404
+
+@app.route('/addresses', methods=['POST'])
+def create_address():
+    data = request.get_json()
+    street_name = data.get('street_name')
+    street_number = data.get('street_number')
+    postal_code = data.get('postal_code')
+    user_id = data.get('user_id')
+
+    new_address = Address(street_name=street_name, street_number=street_number, postal_code=postal_code, user_id=user_id)
+    db.session.add(new_address)
     db.session.commit()
 
-    return jsonify({"message": "Character deleted successfully"}), 200
+    return jsonify(message='Address created successfully', address=new_address.serialize()), 201
+
+@app.route('/addresses/<int:address_id>', methods=['PUT'])
+def update_address(address_id):
+    address = Address.query.get(address_id)
+    if not address:
+        return jsonify(message='Address not found'), 404
+
+    data = request.get_json()
+    address.street_name = data.get('street_name', address.street_name)
+    address.street_number = data.get('street_number', address.street_number)
+    address.postal_code = data.get('postal_code', address.postal_code)
+    address.user_id = data.get('user_id', address.user_id)
+
+    db.session.commit()
+
+    return jsonify(message='Address updated successfully', address=address.serialize())
+
+@app.route('/addresses/<int:address_id>', methods=['DELETE'])
+def delete_address(address_id):
+    address = Address.query.get(address_id)
+    if address:
+        db.session.delete(address)
+        db.session.commit()
+        return jsonify(message='Address deleted successfully')
+    else:
+        return jsonify(message='Address not found'), 404
+
+
+# ... (definiciones de las clases Planet, Character, Vehicle)
+
+@app.route('/planets', methods=['GET'])
+def get_planets():
+    planets = Planet.query.all()
+    return jsonify(planets=[planet.serialize() for planet in planets])
+
+@app.route('/planets/<int:planet_id>', methods=['GET'])
+def get_planet(planet_id):
+    planet = Planet.query.get(planet_id)
+    if planet:
+        return jsonify(planet.serialize())
+    else:
+        return jsonify(message='Planet not found'), 404
+
+@app.route('/planets', methods=['POST'])
+def create_planet():
+    data = request.get_json()
+    name = data.get('name')
+    description = data.get('description')
+    population = data.get('population')
+    terrain = data.get('terrain')
+    diameter = data.get('diameter')
+    orbital_period = data.get('orbital_period')
+
+    new_planet = Planet(name=name, description=description, population=population, terrain=terrain,
+                        diameter=diameter, orbital_period=orbital_period)
+    db.session.add(new_planet)
+    db.session.commit()
+
+    return jsonify(message='Planet created successfully', planet=new_planet.serialize()), 201
+
+@app.route('/planets/<int:planet_id>', methods=['PUT'])
+def update_planet(planet_id):
+    planet = Planet.query.get(planet_id)
+    if not planet:
+        return jsonify(message='Planet not found'), 404
+
+    data = request.get_json()
+    planet.name = data.get('name', planet.name)
+    planet.description = data.get('description', planet.description)
+    planet.population = data.get('population', planet.population)
+    planet.terrain = data.get('terrain', planet.terrain)
+    planet.diameter = data.get('diameter', planet.diameter)
+    planet.orbital_period = data.get('orbital_period', planet.orbital_period)
+
+    db.session.commit()
+
+    return jsonify(message='Planet updated successfully', planet=planet.serialize())
 
 @app.route('/planets/<int:planet_id>', methods=['DELETE'])
-def deletePlanet(planet_id):
-    planet = Planets.query.get(planet_id)
+def delete_planet(planet_id):
+    planet = Planet.query.get(planet_id)
+    if planet:
+        db.session.delete(planet)
+        db.session.commit()
+        return jsonify(message='Planet deleted successfully')
+    else:
+        return jsonify(message='Planet not found'), 404
 
-    if planet is None:
-        return jsonify({"error": "Planet not found"}), 404
 
-    db.session.delete(planet)
+@app.route('/characters', methods=['GET'])
+def get_characters():
+    characters = Character.query.all()
+    return jsonify(characters=[character.serialize() for character in characters])
+
+@app.route('/characters/<int:character_id>', methods=['GET'])
+def get_character(character_id):
+    character = Character.query.get(character_id)
+    if character:
+        return jsonify(character.serialize())
+    else:
+        return jsonify(message='Character not found'), 404
+
+@app.route('/characters', methods=['POST'])
+def create_character():
+    data = request.get_json()
+    name = data.get('name')
+    description = data.get('description')
+    eye_color = data.get('eye_color')
+    hair_color = data.get('hair_color')
+    gender = data.get('gender')
+    height = data.get('height')
+    birth_date = data.get('birth_date')
+
+    new_character = Character(name=name, description=description, eye_color=eye_color, hair_color=hair_color,
+                              gender=gender, height=height, birth_date=birth_date)
+    db.session.add(new_character)
     db.session.commit()
 
-    return jsonify({"message": "Planet deleted successfully"}), 200
+    return jsonify(message='Character created successfully', character=new_character.serialize()), 201
 
-@app.route('/ships/<int:ship_id>', methods=['DELETE'])
-def deleteShip(ship_id):
-    ship = Ships.query.get(ship_id)
+@app.route('/characters/<int:character_id>', methods=['PUT'])
+def update_character(character_id):
+    character = Character.query.get(character_id)
+    if not character:
+        return jsonify(message='Character not found'), 404
 
-    if ship is None:
-        return jsonify({"error": "Ship not found"}), 404
+    data = request.get_json()
+    character.name = data.get('name', character.name)
+    character.description = data.get('description', character.description)
+    character.eye_color = data.get('eye_color', character.eye_color)
+    character.hair_color = data.get('hair_color', character.hair_color)
+    character.gender = data.get('gender', character.gender)
+    character.height = data.get('height', character.height)
+    character.birth_date = data.get('birth_date', character.birth_date)
 
-    db.session.delete(ship)
     db.session.commit()
 
-    return jsonify({"message": "Ship deleted successfully"}), 200
+    return jsonify(message='Character updated successfully', character=character.serialize())
 
-@app.route('/users/favorites', methods=['GET'])
-def getUserFavorites():
-    user_id = get_current_user_id()  
+@app.route('/characters/<int:character_id>', methods=['DELETE'])
+def delete_character(character_id):
+    character = Character.query.get(character_id)
+    if character:
+        db.session.delete(character)
+        db.session.commit()
+        return jsonify(message='Character deleted successfully')
+    else:
+        return jsonify(message='Character not found'), 404
 
-    user = User.query.get(user_id)
-    if user is None:
-        return jsonify({"error": "User not found"}), 404
 
-    favorites_list = []
+@app.route('/vehicles', methods=['GET'])
+def get_vehicles():
+    vehicles = Vehicle.query.all()
+    return jsonify(vehicles=[vehicle.serialize() for vehicle in vehicles])
 
-    character_favorites = CharacterFavorites.query.filter_by(user=user_id).all()
-    for favorite in character_favorites:
-        character = Characters.query.get(favorite.char_id)
-        if character:
-            favorites_list.append({
-                "favorite_id": favorite.id,
-                "name": character.name,
-                "type": "character"
-            })
+@app.route('/vehicles/<int:vehicle_id>', methods=['GET'])
+def get_vehicle(vehicle_id):
+    vehicle = Vehicle.query.get(vehicle_id)
+    if vehicle:
+        return jsonify(vehicle.serialize())
+    else:
+        return jsonify(message='Vehicle not found'), 404
 
-    planet_favorites = PlanetsFavorites.query.filter_by(user=user_id).all()
-    for favorite in planet_favorites:
-        planet = Planets.query.get(favorite.planet_id)
-        if planet:
-            favorites_list.append({
-                "favorite_id": favorite.id,
-                "name": planet.name,
-                "type": "planet"
-            })
+@app.route('/vehicles', methods=['POST'])
+def create_vehicle():
+    data = request.get_json()
+    name = data.get('name')
+    description = data.get('description')
+    model = data.get('model')
+    manufacturer = data.get('manufacturer')
+    passengers = data.get('passengers')
+    max_speed = data.get('max_speed')
+    vehicle_class = data.get('vehicle_class')
 
-    ship_favorites = ShipsFavorites.query.filter_by(user=user_id).all()
-    for favorite in ship_favorites:
-        ship = Ships.query.get(favorite.ship_id)
-        if ship:
-            favorites_list.append({
-                "favorite_id": favorite.id,
-                "name": ship.name,
-                "type": "ship"
-            })
-
-    return jsonify(favorites_list), 200
-
-@app.route('/favorite/character/<int:character_id>', methods=['POST'])
-def addCharacterFavorite(character_id):
-    character = Characters.query.get(character_id)
-    if character is None:
-        return jsonify({"error": "Character not found"}), 404
-
-    existing_favorite = CharacterFavorites.query.filter_by(char_id=character_id).first()
-    if existing_favorite:
-        return jsonify({"error": "Character already a favorite"}), 400
-
-    character_favorite = CharacterFavorites(char_id=character_id)
-    db.session.add(character_favorite)
+    new_vehicle = Vehicle(name=name, description=description, model=model, manufacturer=manufacturer,
+                          passengers=passengers, max_speed=max_speed, vehicle_class=vehicle_class)
+    db.session.add(new_vehicle)
     db.session.commit()
 
-    return jsonify({"message": "Character favorite added successfully"}), 200
+    return jsonify(message='Vehicle created successfully', vehicle=new_vehicle.serialize()), 201
 
+@app.route('/vehicles/<int:vehicle_id>', methods=['PUT'])
+def update_vehicle(vehicle_id):
+    vehicle = Vehicle.query.get(vehicle_id)
+    if not vehicle:
+        return jsonify(message='Vehicle not found'), 404
 
-@app.route('/favorite/planet/<int:planet_id>', methods=['POST'])
-def addPlanetFavorite(planet_id):
-    planet = Planets.query.get(planet_id)
-    if planet is None:
-        return jsonify({"error": "Planet not found"}), 404
+    data = request.get_json()
+    vehicle.name = data.get('name', vehicle.name)
+    vehicle.description = data.get('description', vehicle.description)
+    vehicle.model = data.get('model', vehicle.model)
+    vehicle.manufacturer = data.get('manufacturer', vehicle.manufacturer)
+    vehicle.passengers = data.get('passengers', vehicle.passengers)
+    vehicle.max_speed = data.get('max_speed', vehicle.max_speed)
+    vehicle.vehicle_class = data.get('vehicle_class', vehicle.vehicle_class)
 
-    existing_favorite = PlanetsFavorites.query.filter_by(planet_id=planet_id).first()
-    if existing_favorite:
-        return jsonify({"error": "Planet already a favorite"}), 400
-
-    planet_favorite = PlanetsFavorites(planet_id=planet_id)
-    db.session.add(planet_favorite)
     db.session.commit()
 
-    return jsonify({"message": "Planet favorite added successfully"}), 200
+    return jsonify(message='Vehicle updated successfully', vehicle=vehicle.serialize())
 
-@app.route('/favorite/ship/<int:ship_id>', methods=['POST'])
-def addShipFavorite(ship_id):
-    ship = Ships.query.get(ship_id)
-    if ship is None:
-        return jsonify({"error": "Ship not found"}), 404
+@app.route('/vehicles/<int:vehicle_id>', methods=['DELETE'])
+def delete_vehicle(vehicle_id):
+    vehicle = Vehicle.query.get(vehicle_id)
+    if vehicle:
+        db.session.delete(vehicle)
+        db.session.commit()
+        return jsonify(message='Vehicle deleted successfully')
+    else:
+        return jsonify(message='Vehicle not found'), 404
 
-    existing_favorite = ShipsFavorites.query.filter_by(ship_id=ship_id).first()
-    if existing_favorite:
-        return jsonify({"error": "Ship already a favorite"}), 400
+# ... (definición de la clase Character_Favorite_List)
 
-    ship_favorite = ShipsFavorites(ship_id=ship_id)
-    db.session.add(ship_favorite)
+@app.route('/character-favorite-lists', methods=['GET'])
+def get_character_favorite_lists():
+    favorite_lists = Character_Favorite_List.query.all()
+    return jsonify(favorite_lists=[favorite_list.serialize() for favorite_list in favorite_lists])
+
+@app.route('/character-favorite-lists', methods=['POST'])
+def create_character_favorite_list():
+    data = request.get_json()
+    character_id = data.get('character_id')
+    user_id = data.get('user_id')
+
+    new_character_favorite_list = Character_Favorite_List(character_id=character_id, user_id=user_id)
+    db.session.add(new_character_favorite_list)
     db.session.commit()
 
-    return jsonify({"message": "Ship favorite added successfully"}), 200
+    return jsonify(message='Character favorite list created successfully', favorite_list=new_character_favorite_list.serialize()), 201
 
-@app.route('/favorite/planet/<int:planet_id>', methods=['DELETE'])
-def deletePlanetFavorite(planet_id):
-    favorite = PlanetsFavorites.query.filter_by(planet_id=planet_id).first()
-    if favorite is None:
-        return jsonify({"error": "Planet favorite not found"}), 404
+@app.route('/character-favorite-lists/<int:favorite_list_id>', methods=['GET'])
+def get_character_favorite_list(favorite_list_id):
+    favorite_list = Character_Favorite_List.query.get(favorite_list_id)
+    if favorite_list:
+        return jsonify(favorite_list.serialize())
+    else:
+        return jsonify(message='Character favorite list not found'), 404
 
-    db.session.delete(favorite)
+@app.route('/character-favorite-lists/<int:favorite_list_id>', methods=['PUT'])
+def update_character_favorite_list(favorite_list_id):
+    favorite_list = Character_Favorite_List.query.get(favorite_list_id)
+    if not favorite_list:
+        return jsonify(message='Character favorite list not found'), 404
+
+    data = request.get_json()
+    favorite_list.character_id = data.get('character_id', favorite_list.character_id)
+    favorite_list.user_id = data.get('user_id', favorite_list.user_id)
+
     db.session.commit()
 
-    return jsonify({"message": "Planet favorite deleted successfully"}), 200
+    return jsonify(message='Character favorite list updated successfully', favorite_list=favorite_list.serialize())
+
+@app.route('/character-favorite-lists/<int:favorite_list_id>', methods=['DELETE'])
+def delete_character_favorite_list(favorite_list_id):
+    favorite_list = Character_Favorite_List.query.get(favorite_list_id)
+    if favorite_list:
+        db.session.delete(favorite_list)
+        db.session.commit()
+        return jsonify(message='Character favorite list deleted successfully')
+    else:
+        return jsonify(message='Character favorite list not found'), 404
 
 
-@app.route('/favorite/character/<int:character_id>', methods=['DELETE'])
-def deleteCharacterFavorite(character_id):
-    favorite = CharacterFavorites.query.filter_by(char_id=character_id).first()
-    if favorite is None:
-        return jsonify({"error": "Character favorite not found"}), 404
 
-    db.session.delete(favorite)
+# ... (definición de la clase Planet_Favorite_List)
+
+@app.route('/planet-favorite-lists', methods=['GET'])
+def get_planet_favorite_lists():
+    favorite_lists = Planet_Favorite_List.query.all()
+    return jsonify(favorite_lists=[favorite_list.serialize() for favorite_list in favorite_lists])
+
+@app.route('/planet-favorite-lists', methods=['POST'])
+def create_planet_favorite_list():
+    data = request.get_json()
+    planet_id = data.get('planet_id')
+    user_id = data.get('user_id')
+
+    new_planet_favorite_list = Planet_Favorite_List(planet_id=planet_id, user_id=user_id)
+    db.session.add(new_planet_favorite_list)
     db.session.commit()
 
-    return jsonify({"message": "Character favorite deleted successfully"}), 200
+    return jsonify(message='Planet favorite list created successfully', favorite_list=new_planet_favorite_list.serialize()), 201
 
+@app.route('/planet-favorite-lists/<int:favorite_list_id>', methods=['GET'])
+def get_planet_favorite_list(favorite_list_id):
+    favorite_list = Planet_Favorite_List.query.get(favorite_list_id)
+    if favorite_list:
+        return jsonify(favorite_list.serialize())
+    else:
+        return jsonify(message='Planet favorite list not found'), 404
 
-@app.route('/favorite/ship/<int:ship_id>', methods=['DELETE'])
-def deleteShipFavorite(ship_id):
-    favorite = ShipsFavorites.query.filter_by(ship_id=ship_id).first()
-    if favorite is None:
-        return jsonify({"error": "Ship favorite not found"}), 404
+@app.route('/planet-favorite-lists/<int:favorite_list_id>', methods=['PUT'])
+def update_planet_favorite_list(favorite_list_id):
+    favorite_list = Planet_Favorite_List.query.get(favorite_list_id)
+    if not favorite_list:
+        return jsonify(message='Planet favorite list not found'), 404
 
-    db.session.delete(favorite)
+    data = request.get_json()
+    favorite_list.planet_id = data.get('planet_id', favorite_list.planet_id)
+    favorite_list.user_id = data.get('user_id', favorite_list.user_id)
+
     db.session.commit()
 
-    return jsonify({"message": "Ship favorite deleted successfully"}), 200
+    return jsonify(message='Planet favorite list updated successfully', favorite_list=favorite_list.serialize())
+
+@app.route('/planet-favorite-lists/<int:favorite_list_id>', methods=['DELETE'])
+def delete_planet_favorite_list(favorite_list_id):
+    favorite_list = Planet_Favorite_List.query.get(favorite_list_id)
+    if favorite_list:
+        db.session.delete(favorite_list)
+        db.session.commit()
+        return jsonify(message='Planet favorite list deleted successfully')
+    else:
+        return jsonify(message='Planet favorite list not found'), 404
+
+
+
+# ... (definición de la clase Vehicle_Favorite_List)
+
+@app.route('/vehicle-favorite-lists', methods=['GET'])
+def get_vehicle_favorite_lists():
+    favorite_lists = Vehicle_Favorite_List.query.all()
+    return jsonify(favorite_lists=[favorite_list.serialize() for favorite_list in favorite_lists])
+
+@app.route('/vehicle-favorite-lists', methods=['POST'])
+def create_vehicle_favorite_list():
+    data = request.get_json()
+    vehicle_id = data.get('vehicle_id')
+    user_id = data.get('user_id')
+
+    new_vehicle_favorite_list = Vehicle_Favorite_List(vehicle_id=vehicle_id, user_id=user_id)
+    db.session.add(new_vehicle_favorite_list)
+    db.session.commit()
+
+    return jsonify(message='Vehicle favorite list created successfully', favorite_list=new_vehicle_favorite_list.serialize()), 201
+
+@app.route('/vehicle-favorite-lists/<int:favorite_list_id>', methods=['GET'])
+def get_vehicle_favorite_list(favorite_list_id):
+    favorite_list = Vehicle_Favorite_List.query.get(favorite_list_id)
+    if favorite_list:
+        return jsonify(favorite_list.serialize())
+    else:
+        return jsonify(message='Vehicle favorite list not found'), 404
+
+@app.route('/vehicle-favorite-lists/<int:favorite_list_id>', methods=['PUT'])
+def update_vehicle_favorite_list(favorite_list_id):
+    favorite_list = Vehicle_Favorite_List.query.get(favorite_list_id)
+    if not favorite_list:
+        return jsonify(message='Vehicle favorite list not found'), 404
+
+    data = request.get_json()
+    favorite_list.vehicle_id = data.get('vehicle_id', favorite_list.vehicle_id)
+    favorite_list.user_id = data.get('user_id', favorite_list.user_id)
+
+    db.session.commit()
+
+    return jsonify(message='Vehicle favorite list updated successfully', favorite_list=favorite_list.serialize())
+
+@app.route('/vehicle-favorite-lists/<int:favorite_list_id>', methods=['DELETE'])
+def delete_vehicle_favorite_list(favorite_list_id):
+    favorite_list = Vehicle_Favorite_List.query.get(favorite_list_id)
+    if favorite_list:
+        db.session.delete(favorite_list)
+        db.session.commit()
+
+
 
 
 # this only runs if `$ python src/app.py` is executed
