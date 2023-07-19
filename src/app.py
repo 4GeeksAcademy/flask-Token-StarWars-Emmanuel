@@ -124,23 +124,20 @@ def login():
         data = request.get_json()
         email = data.get('email')
         password = data.get('password')
-        is_active = data.get('is_active')
-
+       
         # # Query the User model using the provided email
     
-        if not email or not password:
+        if not data["email"] or not data["password"]:
             return jsonify({'error': 'Email and password are required.'}), 400
         
-        login_user = User.query.filter_by(email=request.json['email']).one()
+        login_user = User.query.filter_by(email=request.json['email']).first()
         password_db = login_user.password
-        true_o_false = bcrypt.check_password_hash(password_db, password)
+        true_o_false = bcrypt.check_password_hash(password_db,  data["password"])
         
         if true_o_false:
-            # Lógica para crear y enviar el token
-            user_id = login_user.id
-            access_token = create_access_token(identity=user_id)
+            access_token = create_access_token(identity=login_user.id)  # Utilisez l'attribut "id" au lieu de "login_user["id"]"
             form_status = login_user.is_active 
-            return jsonify({ 'access_token':access_token, 'form_status':form_status}), 200
+            return jsonify({ 'access_token':access_token, 'form_status':form_status, "user": login_user.to_dict()}), 200
         else:
             return {"Error":"Contraseña  incorrecta"},401
 
