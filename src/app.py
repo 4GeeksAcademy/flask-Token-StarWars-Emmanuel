@@ -142,7 +142,7 @@ def login():
             form_status = login_user.is_active 
             return jsonify({ 'access_token':access_token, 'form_status':form_status}), 200
         else:
-            return {"Error":"Contraseña  incorrecta"}
+            return {"Error":"Contraseña  incorrecta"},401
 
         # and user.password == password:
         # and is_active:
