@@ -10,7 +10,7 @@ class User(db.Model):
     surname = db.Column(db.String(250), nullable=True)
     phone_number = db.Column(db.String(250), nullable=True)
     email = db.Column(db.String(250), nullable=False)
-    addresses = db.relationship('Address', backref='user')
+    address = db.Column(db.String(250), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False)
 
     def __init__(self, **kwargs):
@@ -27,6 +27,7 @@ class User(db.Model):
             "surname": self.surname,
             "phone_number": self.phone_number,
             "email": self.email,
+            "address":self.address,
             "is_active" : self.is_active
         }
 
@@ -34,31 +35,7 @@ class User(db.Model):
         return self.serialize()
 
 
-class Address(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    street_name = db.Column(db.String(250))
-    street_number = db.Column(db.String(250))
-    postal_code = db.Column(db.String(250), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
 
-    def __init__(self, **kwargs):
-        super(Address, self).__init__(**kwargs)
-
-    def __repr__(self):
-        return '<Address %r>' % self.id
-
-    def serialize(self):
-        return {
-            "id": self.id,
-            "street_name": self.street_name,
-            "street_number": self.street_number,
-            "postal_code": self.postal_code,
-            "user_id": self.user_id
-        }
-    
-
-    def to_dict(self):
-        return self.serialize()
 
 
 class Planet(db.Model):

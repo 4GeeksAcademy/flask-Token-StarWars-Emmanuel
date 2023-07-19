@@ -1,8 +1,8 @@
 """empty message
 
-Revision ID: e65398a07d25
+Revision ID: 041c94eb4a88
 Revises: 
-Create Date: 2023-07-18 22:57:06.216547
+Create Date: 2023-07-19 05:17:19.726164
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'e65398a07d25'
+revision = '041c94eb4a88'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -47,6 +47,7 @@ def upgrade():
     sa.Column('surname', sa.String(length=250), nullable=True),
     sa.Column('phone_number', sa.String(length=250), nullable=True),
     sa.Column('email', sa.String(length=250), nullable=False),
+    sa.Column('address', sa.String(length=250), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
@@ -59,15 +60,6 @@ def upgrade():
     sa.Column('passengers', sa.Integer(), nullable=True),
     sa.Column('max_speed', sa.Integer(), nullable=True),
     sa.Column('vehicle_class', sa.String(length=250), nullable=True),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.create_table('address',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('street_name', sa.String(length=250), nullable=True),
-    sa.Column('street_number', sa.String(length=250), nullable=True),
-    sa.Column('postal_code', sa.String(length=250), nullable=False),
-    sa.Column('user_id', sa.Integer(), nullable=True),
-    sa.ForeignKeyConstraint(['user_id'], ['user.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('character__favorite__list',
@@ -102,7 +94,6 @@ def downgrade():
     op.drop_table('vehicle__favorite__list')
     op.drop_table('planet__favorite__list')
     op.drop_table('character__favorite__list')
-    op.drop_table('address')
     op.drop_table('vehicle')
     op.drop_table('user')
     op.drop_table('planet')

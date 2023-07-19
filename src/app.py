@@ -7,7 +7,7 @@ from flask_migrate import Migrate
 from flask_cors import CORS
 from utils import APIException, generate_sitemap, generate_token
 from admin import setup_admin
-from models import db, User, Address, Planet, Character, Vehicle, Character_Favorite_List, Planet_Favorite_List, Vehicle_Favorite_List
+from models import db, User, Planet, Character, Vehicle, Character_Favorite_List, Planet_Favorite_List, Vehicle_Favorite_List
 
 from flask_bcrypt import Bcrypt  # para encriptar y comparar
 from flask_sqlalchemy import SQLAlchemy  # Para rutas
@@ -71,6 +71,11 @@ def create_user():
         data = request.get_json()
         email = data.get('email')
         password = data.get('password')
+        name = data.get('name')
+        username = data.get('username')
+        phone = data.get('phone')
+        address = data.get('address')
+
         
 
         if not email or not password:
@@ -101,7 +106,7 @@ def create_user():
         # if not street_name or not street_number or not postal_code:
         #     return jsonify(message='Missing required fields for address'), 400
 
-        new_user = User(email=email, password=password_hash, is_active = False)
+        new_user = User(email=email, password=password_hash, is_active = False,name=name,username=username,address=address,phone_number=phone)
         
         # (username=username, password=password_hash, name=name, surname=surname,
         #                 phone_number=phone_number, email=email)
@@ -125,7 +130,6 @@ def login():
         email = data.get('email')
         password = data.get('password')
        
-        # # Query the User model using the provided email
     
         if not data["email"] or not data["password"]:
             return jsonify({'error': 'Email and password are required.'}), 400
@@ -135,7 +139,7 @@ def login():
         true_o_false = bcrypt.check_password_hash(password_db,  data["password"])
         
         if true_o_false:
-            access_token = create_access_token(identity=login_user.id)  # Utilisez l'attribut "id" au lieu de "login_user["id"]"
+            access_token = create_access_token(identity=login_user.id)  
             form_status = login_user.is_active 
             return jsonify({ 'access_token':access_token, 'form_status':form_status, "user": login_user.to_dict()}), 200
         else:
@@ -216,11 +220,12 @@ def update_user(user_id):
     username = data.get('username')
     password = data.get('password')
     name = data.get('name')
+    address = data.get('address')
     surname = data.get('surname')
     phone_number = data.get('phone_number')
     email = data.get('email')
 
-    if not username or not password or not name or not surname or not phone_number or not email:
+    if not username or not password or not name or not surname or not address or not phone_number or not email:
         return jsonify(message='Missing required fields'), 400
 
     user.username = username
@@ -229,23 +234,24 @@ def update_user(user_id):
     user.surname = surname
     user.phone_number = phone_number
     user.email = email
+    user.address = address
 
-    address_data = data.get('address')
-    if address_data:
-        address = Address.query.filter_by(user_id=user_id).first()
-        if not address:
-            return jsonify(message='Address not found for the user'), 404
+    # address_data = data.get('address')
+    # if address_data:
+    #     address = Address.query.filter_by(user_id=user_id).first()
+    #     if not address:
+    #         return jsonify(message='Address not found for the user'), 404
 
-        street_name = address_data.get('street_name')
-        street_number = address_data.get('street_number')
-        postal_code = address_data.get('postal_code')
+    #     street_name = address_data.get('street_name')
+    #     street_number = address_data.get('street_number')
+    #     postal_code = address_data.get('postal_code')
 
-        if not street_name or not street_number or not postal_code:
-            return jsonify(message='Missing required fields for address'), 400
+    #     if not street_name or not street_number or not postal_code:
+    #         return jsonify(message='Missing required fields for address'), 400
 
-        address.street_name = street_name
-        address.street_number = street_number
-        address.postal_code = postal_code
+    #     address.street_name = street_name
+    #     address.street_number = street_number
+    #     address.postal_code = postal_code
 
     db.session.commit()
 
@@ -258,10 +264,7 @@ def delete_user(user_id):
     if not user:
         return jsonify(message='User not found'), 404
 
-    # Delete associated address
-    address = Address.query.filter_by(user_id=user_id).first()
-    if address:
-        db.session.delete(address)
+   
 
     # Delete associated favorite lists
     character_favorite_list = Character_Favorite_List.query.filter_by(user_id=user_id).first()
@@ -281,63 +284,7 @@ def delete_user(user_id):
 
     return jsonify(message='User deleted successfully')
 
-# ... (definiciones de la clase Adress)
 
-@app.route('/addresses', methods=['GET'])
-def get_addresses():
-    addresses = Address.query.all()
-    return jsonify(addresses=[address.serialize() for address in addresses])
-
-@app.route('/addresses/<int:address_id>', methods=['GET'])
-def get_address(address_id):
-    address = Address.query.get(address_id)
-    if address:
-        return jsonify(address.serialize())
-    else:
-        return jsonify(message='Address not found'), 404
-
-@app.route('/addresses', methods=['POST'])
-def create_address():
-    data = request.get_json()
-    street_name = data.get('street_name')
-    street_number = data.get('street_number')
-    postal_code = data.get('postal_code')
-    user_id = data.get('user_id')
-
-    new_address = Address(street_name=street_name, street_number=street_number, postal_code=postal_code, user_id=user_id)
-    db.session.add(new_address)
-    db.session.commit()
-
-    return jsonify(message='Address created successfully', address=new_address.serialize()), 201
-
-@app.route('/addresses/<int:address_id>', methods=['PUT'])
-def update_address(address_id):
-    address = Address.query.get(address_id)
-    if not address:
-        return jsonify(message='Address not found'), 404
-
-    data = request.get_json()
-    address.street_name = data.get('street_name', address.street_name)
-    address.street_number = data.get('street_number', address.street_number)
-    address.postal_code = data.get('postal_code', address.postal_code)
-    address.user_id = data.get('user_id', address.user_id)
-
-    db.session.commit()
-
-    return jsonify(message='Address updated successfully', address=address.serialize())
-
-@app.route('/addresses/<int:address_id>', methods=['DELETE'])
-def delete_address(address_id):
-    address = Address.query.get(address_id)
-    if address:
-        db.session.delete(address)
-        db.session.commit()
-        return jsonify(message='Address deleted successfully')
-    else:
-        return jsonify(message='Address not found'), 404
-
-
-# ... (definiciones de las clases Planet, Character, Vehicle)
 
 @app.route('/planets', methods=['GET'])
 def get_planets():

@@ -1,6 +1,13 @@
-<a href="https://www.breatheco.de"><img height="280" align="right" src="https://github.com/4GeeksAcademy/flask-rest-hello/blob/main/docs/assets/badge.png?raw=true"></a>
+# Bienvenidos a mi back:
 
-# Flask Boilerplate for Junior Developers
+# Mi repositorio de front: https://github.com/4GeeksAcademy/StarWars-Emmanuel-API
+
+
+
+:)
+
+
+
 
 Create flask API's in minutes, [📹 watch the video tutorial](https://youtu.be/ORxQ-K3BzQA).
 
