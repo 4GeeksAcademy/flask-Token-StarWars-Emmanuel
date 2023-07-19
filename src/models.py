@@ -55,6 +55,7 @@ class Address(db.Model):
             "postal_code": self.postal_code,
             "user_id": self.user_id
         }
+    
 
     def to_dict(self):
         return self.serialize()
